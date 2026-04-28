@@ -6,7 +6,7 @@
 
 namespace {
 
-bool parse_octet(const std::string& value, int& octet) {
+bool parse_octet(const std::string &value, int &octet) {
   if (value.empty()) {
     return false;
   }
@@ -26,20 +26,23 @@ bool parse_octet(const std::string& value, int& octet) {
   return octet >= 0 && octet <= 255;
 }
 
-}  // namespace
+} // namespace
 
-void print_usage(const char* program_name) {
+void print_usage(const char *program_name) {
   std::cerr << "Usage: " << program_name
-            << " <target-host-or-range> [--timeout-seconds N] [--port P] [--with-auth] "
+            << " <target-host-or-range> [--timeout-seconds N] [--port P] "
+               "[--threads N] [--with-auth] "
                "[--without-tor]\n"
             << "Examples:\n"
-            << "  " << program_name << " example.com --port 22 --timeout-seconds 5\n"
-            << "  " << program_name << " 127.0.0.1-255 --timeout-seconds 2 --port 443\n"
+            << "  " << program_name
+            << " example.com --port 22 --timeout-seconds 5\n"
+            << "  " << program_name
+            << " 127.0.0.1-255 --timeout-seconds 2 --port 443 --threads 32\n"
             << "  " << program_name << " 192.168.1.10 --port 23 --with-auth\n"
             << "  " << program_name << " 10.0.0.5 --port 80 --without-tor\n";
 }
 
-bool parse_cli_options(int argc, char** argv, CliOptions& options) {
+bool parse_cli_options(int argc, char **argv, CliOptions &options) {
   if (argc == 2) {
     return true;
   }
@@ -91,26 +94,43 @@ bool parse_cli_options(int argc, char** argv, CliOptions& options) {
       continue;
     }
 
+    if (flag == "--threads") {
+      try {
+        options.threads = std::stoi(value);
+        if (options.threads <= 0) {
+          return false;
+        }
+      } catch (...) {
+        return false;
+      }
+      i += 2;
+      continue;
+    }
+
     return false;
   }
 
   return true;
 }
 
-bool parse_host_range(const std::string& input, std::vector<std::string>& targets) {
+bool parse_host_range(const std::string &input,
+                      std::vector<std::string> &targets) {
   const size_t dash_pos = input.rfind('-');
   const size_t dot_pos = input.rfind('.');
-  if (dash_pos == std::string::npos || dot_pos == std::string::npos || dash_pos <= dot_pos) {
+  if (dash_pos == std::string::npos || dot_pos == std::string::npos ||
+      dash_pos <= dot_pos) {
     return false;
   }
 
   const std::string prefix = input.substr(0, dot_pos + 1);
-  const std::string start_octet_string = input.substr(dot_pos + 1, dash_pos - dot_pos - 1);
+  const std::string start_octet_string =
+      input.substr(dot_pos + 1, dash_pos - dot_pos - 1);
   const std::string end_octet_string = input.substr(dash_pos + 1);
 
   int start_octet = 0;
   int end_octet = 0;
-  if (!parse_octet(start_octet_string, start_octet) || !parse_octet(end_octet_string, end_octet)) {
+  if (!parse_octet(start_octet_string, start_octet) ||
+      !parse_octet(end_octet_string, end_octet)) {
     return false;
   }
   if (start_octet > end_octet) {
