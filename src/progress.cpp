@@ -1,8 +1,9 @@
 #include "./progress.hpp"
 
+#include "./logging.hpp"
+
 #include <algorithm>
 #include <chrono>
-#include <iostream>
 
 namespace {
 
@@ -10,15 +11,15 @@ constexpr std::size_t k_bar_width = 30;
 constexpr auto k_frame_delay = std::chrono::milliseconds(80);
 constexpr char k_spinner_frames[] = {'|', '/', '-', '\\'};
 
-}  // namespace
+} // namespace
 
-ProgressIndicator::ProgressIndicator() : running_(false), completed_steps_(0), total_steps_(0) {}
+ProgressIndicator::ProgressIndicator()
+    : running_(false), completed_steps_(0), total_steps_(0) {}
 
-ProgressIndicator::~ProgressIndicator() {
-  stop("");
-}
+ProgressIndicator::~ProgressIndicator() { stop(""); }
 
-void ProgressIndicator::start(std::size_t total_steps, const std::string& label) {
+void ProgressIndicator::start(std::size_t total_steps,
+                              const std::string &label) {
   if (running_.load()) {
     return;
   }
@@ -41,7 +42,7 @@ void ProgressIndicator::increment() {
   }
 }
 
-void ProgressIndicator::stop(const std::string& done_message) {
+void ProgressIndicator::stop(const std::string &done_message) {
   if (!running_.load()) {
     return;
   }
@@ -54,33 +55,37 @@ void ProgressIndicator::stop(const std::string& done_message) {
   completed_steps_.store(total_steps_);
   render(' ');
 
-  std::lock_guard<std::mutex> lock(io_mutex_);
   if (!done_message.empty()) {
-    std::cout << " " << done_message;
+    log_stdout_line(" " + done_message);
+    return;
   }
-  std::cout << "\n";
+  log_stdout_line("");
 }
 
 void ProgressIndicator::run() {
   std::size_t frame_index = 0;
   while (running_.load()) {
-    render(k_spinner_frames[frame_index % (sizeof(k_spinner_frames) / sizeof(k_spinner_frames[0]))]);
+    render(k_spinner_frames[frame_index % (sizeof(k_spinner_frames) /
+                                           sizeof(k_spinner_frames[0]))]);
     ++frame_index;
     std::this_thread::sleep_for(k_frame_delay);
   }
 }
 
 void ProgressIndicator::render(char spinner_char) {
-  const std::size_t completed_steps = std::min(completed_steps_.load(), total_steps_);
+  const std::size_t completed_steps =
+      std::min(completed_steps_.load(), total_steps_);
   const std::string bar = build_bar(completed_steps, total_steps_);
   const std::size_t percent = (completed_steps * 100) / total_steps_;
 
-  std::lock_guard<std::mutex> lock(io_mutex_);
-  std::cout << '\r' << spinner_char << " " << label_ << " " << bar << " " << completed_steps << "/"
-            << total_steps_ << " (" << percent << "%)" << std::flush;
+  render_progress_frame(std::string(1, spinner_char) + " " + label_ + " " +
+                        bar + " " + std::to_string(completed_steps) + "/" +
+                        std::to_string(total_steps_) + " (" +
+                        std::to_string(percent) + "%)");
 }
 
-std::string ProgressIndicator::build_bar(std::size_t completed_steps, std::size_t total_steps) {
+std::string ProgressIndicator::build_bar(std::size_t completed_steps,
+                                         std::size_t total_steps) {
   const std::size_t filled = (completed_steps * k_bar_width) / total_steps;
 
   std::string bar = "[";

@@ -5,7 +5,6 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
-#include <cstdint>
 #include <netdb.h>
 #include <string>
 #include <sys/socket.h>

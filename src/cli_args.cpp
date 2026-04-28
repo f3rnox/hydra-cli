@@ -1,7 +1,7 @@
 #include "./cli_args.hpp"
+#include "./logging.hpp"
 
 #include <array>
-#include <iostream>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -48,8 +48,8 @@ bool parse_octet_range(const std::string &value, int &start_octet,
   }
 
   const std::string start_string = value.substr(0, dash_pos);
-  const std::string end_string = value.substr(dash_pos + 1);
-  if (!parse_octet(start_string, start_octet) ||
+  if (const std::string end_string = value.substr(dash_pos + 1);
+      !parse_octet(start_string, start_octet) ||
       !parse_octet(end_string, end_octet)) {
     return false;
   }
@@ -57,23 +57,55 @@ bool parse_octet_range(const std::string &value, int &start_octet,
   return start_octet <= end_octet;
 }
 
+bool parse_auth_combo(const std::string &value, std::string &username,
+                      std::string &password) {
+  const size_t delimiter_position = value.find(':');
+  if (delimiter_position == std::string::npos) {
+    return false;
+  }
+
+  username = value.substr(0, delimiter_position);
+  password = value.substr(delimiter_position + 1);
+  return !username.empty();
+}
+
 } // namespace
 
 void print_usage(const char *program_name) {
-  std::cerr
-      << "Usage: " << program_name
-      << " <target-host-or-range> [--timeout-seconds N] [--port P] "
-         "[--threads N] [--save-results FILE] [--with-auth] [--with-session] "
-         "[--without-tor]\n"
-      << "Examples:\n"
-      << "  " << program_name << " example.com --port 22 --timeout-seconds 5\n"
-      << "  " << program_name
-      << " 127.0.0.1-255 --timeout-seconds 2 --port 443 --threads 32\n"
-      << "  " << program_name
-      << " 192.168.1.10 --port 23 --save-results results.txt\n"
-      << "  " << program_name << " 192.168.1.10 --port 23 --with-auth\n"
-      << "  " << program_name << " 10.0.0.5 --port 22 --with-session\n"
-      << "  " << program_name << " 10.0.0.5 --port 80 --without-tor\n";
+  const std::string usage =
+      std::string("Usage: ") + program_name +
+      " <target-host-or-range> [--timeout-seconds N] [--port P] [--threads N] "
+      "[--auth-threads N] [--auth-timeout N] [--save-results FILE] "
+      "[--auth-combo USER:PASS] [--with-auth] "
+      "[--with-session] [--without-tor]\n"
+      "Examples:\n"
+      "  " +
+      program_name +
+      " example.com --port 22 --timeout-seconds 5\n"
+      "  " +
+      program_name +
+      " 127.0.0.1-255 --timeout-seconds 2 --port 443 --threads 32\n"
+      "  " +
+      program_name +
+      " 192.168.1.10-20 --port 23 --with-auth --auth-threads 8\n"
+      "  " +
+      program_name +
+      " 192.168.1.10-20 --port 23 --with-auth --auth-timeout 2\n"
+      "  " +
+      program_name +
+      " 192.168.1.10 --port 23 --with-auth --auth-combo admin:admin\n"
+      "  " +
+      program_name +
+      " 192.168.1.10 --port 23 --save-results results.txt\n"
+      "  " +
+      program_name +
+      " 192.168.1.10 --port 23 --with-auth\n"
+      "  " +
+      program_name +
+      " 10.0.0.5 --port 22 --with-session\n"
+      "  " +
+      program_name + " 10.0.0.5 --port 80 --without-tor";
+  log_stderr_line(usage);
 }
 
 bool parse_cli_options(int argc, char **argv, CliOptions &options) {
@@ -147,11 +179,48 @@ bool parse_cli_options(int argc, char **argv, CliOptions &options) {
       continue;
     }
 
+    if (flag == "--auth-threads") {
+      try {
+        options.auth_threads = std::stoi(value);
+        if (options.auth_threads <= 0) {
+          return false;
+        }
+      } catch (...) {
+        return false;
+      }
+      i += 2;
+      continue;
+    }
+
+    if (flag == "--auth-timeout") {
+      try {
+        options.auth_timeout_seconds = std::stoi(value);
+        if (options.auth_timeout_seconds <= 0) {
+          return false;
+        }
+      } catch (...) {
+        return false;
+      }
+      i += 2;
+      continue;
+    }
+
     if (flag == "--save-results") {
       if (value.empty()) {
         return false;
       }
       options.save_results_path = value;
+      i += 2;
+      continue;
+    }
+
+    if (flag == "--auth-combo") {
+      std::string username;
+      std::string password;
+      if (!parse_auth_combo(value, username, password)) {
+        return false;
+      }
+      options.auth_combinations.push_back({username, password});
       i += 2;
       continue;
     }
