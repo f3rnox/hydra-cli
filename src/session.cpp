@@ -1,9 +1,11 @@
 #include "./session.hpp"
 
 #include <cstddef>
+#include <exception>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -44,7 +46,9 @@ bool parse_size_t(const std::string &value, std::size_t &out) {
   }
   try {
     out = static_cast<std::size_t>(std::stoull(value));
-  } catch (...) {
+  } catch (const std::invalid_argument &) {
+    return false;
+  } catch (const std::out_of_range &) {
     return false;
   }
   return true;
@@ -103,8 +107,8 @@ void Session::reset_state_locked(std::size_t target_count) {
 }
 
 bool Session::open(const std::filesystem::path &session_file_path,
-                   const std::string &session_key, std::size_t target_count) {
-  std::lock_guard<std::mutex> lock(mutex_);
+                   std::string_view session_key, std::size_t target_count) {
+  std::scoped_lock lock(mutex_);
   file_path_ = session_file_path;
   session_key_ = session_key;
   reset_state_locked(target_count);
@@ -225,7 +229,7 @@ bool Session::save_locked() const {
 }
 
 std::size_t Session::connect_pending_count() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   std::size_t pending = 0;
   for (const char bit : connect_bitmap_) {
     if (bit == 0) {
@@ -236,7 +240,7 @@ std::size_t Session::connect_pending_count() const {
 }
 
 bool Session::connect_should_skip(std::size_t target_index) const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   if (target_index >= connect_bitmap_.size()) {
     return true;
   }
@@ -245,7 +249,7 @@ bool Session::connect_should_skip(std::size_t target_index) const {
 
 bool Session::connect_record(std::size_t target_index, bool connected,
                              const std::string &host) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   if (target_index >= connect_bitmap_.size()) {
     return false;
   }
@@ -259,21 +263,21 @@ bool Session::connect_record(std::size_t target_index, bool connected,
 }
 
 std::vector<std::string> Session::connected_hosts() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return connected_hosts_;
 }
 
 bool Session::connect_finalize() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   phase_ = "auth";
   return save_locked();
 }
 
 bool Session::auth_init(std::size_t target_count,
                         std::size_t credential_count) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  const std::size_t expected_size = target_count * credential_count;
-  if (auth_target_count_ != target_count ||
+  std::scoped_lock lock(mutex_);
+  if (const std::size_t expected_size = target_count * credential_count;
+      auth_target_count_ != target_count ||
       auth_credential_count_ != credential_count ||
       auth_bitmap_.size() != expected_size) {
     auth_target_count_ = target_count;
@@ -290,7 +294,7 @@ bool Session::auth_init(std::size_t target_count,
 
 bool Session::auth_should_skip(std::size_t target_index,
                                std::size_t credential_index) const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   if (auth_credential_count_ == 0) {
     return false;
   }
@@ -304,7 +308,7 @@ bool Session::auth_should_skip(std::size_t target_index,
 
 bool Session::auth_record(std::size_t target_index,
                           std::size_t credential_index) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   if (auth_credential_count_ == 0) {
     return false;
   }
@@ -317,10 +321,10 @@ bool Session::auth_record(std::size_t target_index,
   return save_locked();
 }
 
-bool Session::auth_record_success(const std::string &host,
-                                  const std::string &username,
-                                  const std::string &password) {
-  std::lock_guard<std::mutex> lock(mutex_);
+bool Session::auth_record_success(std::string_view host,
+                                  std::string_view username,
+                                  std::string_view password) {
+  std::scoped_lock lock(mutex_);
   auth_success_ = true;
   auth_host_ = host;
   auth_username_ = username;
@@ -330,33 +334,33 @@ bool Session::auth_record_success(const std::string &host,
 }
 
 bool Session::auth_succeeded() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return auth_success_;
 }
 
 std::string Session::auth_success_host() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return auth_host_;
 }
 
 std::string Session::auth_success_username() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return auth_username_;
 }
 
 std::string Session::auth_success_password() const {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   return auth_password_;
 }
 
 bool Session::mark_done() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   phase_ = "done";
   return save_locked();
 }
 
 void Session::clear() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::scoped_lock lock(mutex_);
   std::error_code ec;
   std::filesystem::remove(file_path_, ec);
   is_open_ = false;

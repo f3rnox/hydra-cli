@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class Session {
@@ -11,7 +12,7 @@ public:
   Session();
 
   bool open(const std::filesystem::path &session_file_path,
-            const std::string &session_key, std::size_t target_count);
+            std::string_view session_key, std::size_t target_count);
 
   bool is_open() const;
   const std::filesystem::path &file_path() const;
@@ -27,8 +28,8 @@ public:
   bool auth_should_skip(std::size_t target_index,
                         std::size_t credential_index) const;
   bool auth_record(std::size_t target_index, std::size_t credential_index);
-  bool auth_record_success(const std::string &host, const std::string &username,
-                           const std::string &password);
+  bool auth_record_success(std::string_view host, std::string_view username,
+                           std::string_view password);
   bool auth_succeeded() const;
   std::string auth_success_host() const;
   std::string auth_success_username() const;

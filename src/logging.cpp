@@ -3,67 +3,76 @@
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <string_view>
 
 namespace {
 
-std::mutex g_console_mutex;
-std::string g_stdout_pending;
+std::mutex &console_mutex() {
+  static std::mutex value;
+  return value;
+}
 
-void write_stdout_unlocked(const std::string &text) {
+std::string &stdout_pending() {
+  static std::string value;
+  return value;
+}
+
+void write_stdout_unlocked(std::string_view text) {
   std::cout << text;
   std::cout.flush();
 }
 
-void write_stderr_unlocked(const std::string &text) {
+void write_stderr_unlocked(std::string_view text) {
   std::cerr << text;
   std::cerr.flush();
 }
 
 } // namespace
 
-void log_info(const std::string &message) {
-  std::lock_guard<std::mutex> lock(g_console_mutex);
-  write_stdout_unlocked("[info] " + message + "\n");
+void log_info(std::string_view message) {
+  std::lock_guard lock(console_mutex());
+  write_stdout_unlocked(std::string("[info] ") + std::string(message) + "\n");
 }
 
-void log_error(const std::string &message) {
-  std::lock_guard<std::mutex> lock(g_console_mutex);
-  write_stderr_unlocked("[error] " + message + "\n");
+void log_error(std::string_view message) {
+  std::lock_guard lock(console_mutex());
+  write_stderr_unlocked(std::string("[error] ") + std::string(message) + "\n");
 }
 
-void log_stdout_line(const std::string &message) {
-  std::lock_guard<std::mutex> lock(g_console_mutex);
-  write_stdout_unlocked(message + "\n");
+void log_stdout_line(std::string_view message) {
+  std::lock_guard lock(console_mutex());
+  write_stdout_unlocked(std::string(message) + "\n");
 }
 
-void log_stderr_line(const std::string &message) {
-  std::lock_guard<std::mutex> lock(g_console_mutex);
-  write_stderr_unlocked(message + "\n");
+void log_stderr_line(std::string_view message) {
+  std::lock_guard lock(console_mutex());
+  write_stderr_unlocked(std::string(message) + "\n");
 }
 
-void log_stdout_chunk(const std::string &chunk) {
-  std::lock_guard<std::mutex> lock(g_console_mutex);
-  g_stdout_pending.append(chunk);
+void log_stdout_chunk(std::string_view chunk) {
+  std::lock_guard lock(console_mutex());
+  std::string &pending = stdout_pending();
+  pending.append(chunk);
 
-  size_t newline_position = g_stdout_pending.find('\n');
+  size_t newline_position = pending.find('\n');
   while (newline_position != std::string::npos) {
-    const std::string complete_line =
-        g_stdout_pending.substr(0, newline_position + 1);
+    const std::string complete_line = pending.substr(0, newline_position + 1);
     write_stdout_unlocked(complete_line);
-    g_stdout_pending.erase(0, newline_position + 1);
-    newline_position = g_stdout_pending.find('\n');
+    pending.erase(0, newline_position + 1);
+    newline_position = pending.find('\n');
   }
 }
 
 void flush_stdout_buffer() {
-  std::lock_guard<std::mutex> lock(g_console_mutex);
-  if (!g_stdout_pending.empty()) {
-    write_stdout_unlocked(g_stdout_pending + "\n");
-    g_stdout_pending.clear();
+  std::lock_guard lock(console_mutex());
+  std::string &pending = stdout_pending();
+  if (!pending.empty()) {
+    write_stdout_unlocked(pending + "\n");
+    pending.clear();
   }
 }
 
-void render_progress_frame(const std::string &frame) {
-  std::lock_guard<std::mutex> lock(g_console_mutex);
+void render_progress_frame(std::string_view frame) {
+  std::lock_guard lock(console_mutex());
   std::cout << '\r' << frame << std::flush;
 }

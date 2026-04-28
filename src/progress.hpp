@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <thread>
 
 class ProgressIndicator {
@@ -10,13 +11,13 @@ public:
   ProgressIndicator();
   ~ProgressIndicator();
 
-  void start(std::size_t total_steps, const std::string &label);
+  void start(std::size_t total_steps, std::string_view label);
   void increment();
-  void stop(const std::string &done_message);
+  void stop(std::string_view done_message);
 
 private:
-  void run();
-  void render(char spinner_char);
+  void run() const;
+  void render(char spinner_char) const;
   static std::string build_bar(std::size_t completed_steps,
                                std::size_t total_steps);
 

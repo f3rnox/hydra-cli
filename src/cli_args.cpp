@@ -2,9 +2,11 @@
 #include "./logging.hpp"
 
 #include <array>
+#include <exception>
 #include <limits>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -21,7 +23,9 @@ bool parse_octet(const std::string &value, int &octet) {
 
   try {
     octet = std::stoi(value);
-  } catch (...) {
+  } catch (const std::invalid_argument &) {
+    return false;
+  } catch (const std::out_of_range &) {
     return false;
   }
 
@@ -57,16 +61,105 @@ bool parse_octet_range(const std::string &value, int &start_octet,
   return start_octet <= end_octet;
 }
 
-bool parse_auth_combo(const std::string &value, std::string &username,
+bool parse_auth_combo(std::string_view value, std::string &username,
                       std::string &password) {
   const size_t delimiter_position = value.find(':');
-  if (delimiter_position == std::string::npos) {
+  if (delimiter_position == std::string_view::npos) {
     return false;
   }
 
   username = value.substr(0, delimiter_position);
   password = value.substr(delimiter_position + 1);
   return !username.empty();
+}
+
+bool parse_positive_integer(std::string_view value, int &target) {
+  try {
+    target = std::stoi(std::string(value));
+    return target > 0;
+  } catch (const std::invalid_argument &) {
+    return false;
+  } catch (const std::out_of_range &) {
+    return false;
+  }
+}
+
+bool parse_port(std::string_view value, int &target_port) {
+  if (!parse_positive_integer(value, target_port)) {
+    return false;
+  }
+  return target_port <= 65535;
+}
+
+bool parse_value_option(std::string_view flag, std::string_view value,
+                        CliOptions &options) {
+  if (flag == "--timeout-seconds") {
+    return parse_positive_integer(value, options.timeout_seconds);
+  }
+  if (flag == "--port") {
+    return parse_port(value, options.target_port);
+  }
+  if (flag == "--threads") {
+    return parse_positive_integer(value, options.threads);
+  }
+  if (flag == "--auth-threads") {
+    return parse_positive_integer(value, options.auth_threads);
+  }
+  if (flag == "--auth-timeout") {
+    return parse_positive_integer(value, options.auth_timeout_seconds);
+  }
+  if (flag == "--save-results") {
+    if (value.empty()) {
+      return false;
+    }
+    options.save_results_path = value;
+    return true;
+  }
+  if (flag == "--auth-combo") {
+    std::string username;
+    std::string password;
+    if (!parse_auth_combo(value, username, password)) {
+      return false;
+    }
+    options.auth_combinations.emplace_back(username, password);
+    return true;
+  }
+  return false;
+}
+
+bool is_toggle_option(std::string_view flag, CliOptions &options) {
+  if (flag == "--with-auth") {
+    options.with_auth = true;
+    return true;
+  }
+  if (flag == "--without-tor") {
+    options.without_tor = true;
+    return true;
+  }
+  if (flag == "--with-session") {
+    options.with_session = true;
+    return true;
+  }
+  return false;
+}
+
+void append_targets_from_ranges(
+    const std::array<std::pair<int, int>, 4> &octet_ranges, size_t index,
+    std::array<int, 4> &selected_octets, std::vector<std::string> &targets) {
+  if (index == selected_octets.size()) {
+    targets.push_back(std::to_string(selected_octets[0]) + "." +
+                      std::to_string(selected_octets[1]) + "." +
+                      std::to_string(selected_octets[2]) + "." +
+                      std::to_string(selected_octets[3]));
+    return;
+  }
+
+  for (int value = octet_ranges[index].first;
+       value <= octet_ranges[index].second; ++value) {
+    selected_octets[index] = value;
+    append_targets_from_ranges(octet_ranges, index + 1, selected_octets,
+                               targets);
+  }
 }
 
 } // namespace
@@ -116,20 +209,7 @@ bool parse_cli_options(int argc, char **argv, CliOptions &options) {
   for (int i = 2; i < argc;) {
     const std::string flag = argv[i];
 
-    if (flag == "--with-auth") {
-      options.with_auth = true;
-      ++i;
-      continue;
-    }
-
-    if (flag == "--without-tor") {
-      options.without_tor = true;
-      ++i;
-      continue;
-    }
-
-    if (flag == "--with-session") {
-      options.with_session = true;
+    if (is_toggle_option(flag, options)) {
       ++i;
       continue;
     }
@@ -138,94 +218,11 @@ bool parse_cli_options(int argc, char **argv, CliOptions &options) {
       return false;
     }
 
-    const std::string value = argv[i + 1];
-
-    if (flag == "--timeout-seconds") {
-      try {
-        options.timeout_seconds = std::stoi(value);
-        if (options.timeout_seconds <= 0) {
-          return false;
-        }
-      } catch (...) {
-        return false;
-      }
-      i += 2;
-      continue;
+    if (const std::string value = argv[i + 1];
+        !parse_value_option(flag, value, options)) {
+      return false;
     }
-
-    if (flag == "--port") {
-      try {
-        options.target_port = std::stoi(value);
-        if (options.target_port <= 0 || options.target_port > 65535) {
-          return false;
-        }
-      } catch (...) {
-        return false;
-      }
-      i += 2;
-      continue;
-    }
-
-    if (flag == "--threads") {
-      try {
-        options.threads = std::stoi(value);
-        if (options.threads <= 0) {
-          return false;
-        }
-      } catch (...) {
-        return false;
-      }
-      i += 2;
-      continue;
-    }
-
-    if (flag == "--auth-threads") {
-      try {
-        options.auth_threads = std::stoi(value);
-        if (options.auth_threads <= 0) {
-          return false;
-        }
-      } catch (...) {
-        return false;
-      }
-      i += 2;
-      continue;
-    }
-
-    if (flag == "--auth-timeout") {
-      try {
-        options.auth_timeout_seconds = std::stoi(value);
-        if (options.auth_timeout_seconds <= 0) {
-          return false;
-        }
-      } catch (...) {
-        return false;
-      }
-      i += 2;
-      continue;
-    }
-
-    if (flag == "--save-results") {
-      if (value.empty()) {
-        return false;
-      }
-      options.save_results_path = value;
-      i += 2;
-      continue;
-    }
-
-    if (flag == "--auth-combo") {
-      std::string username;
-      std::string password;
-      if (!parse_auth_combo(value, username, password)) {
-        return false;
-      }
-      options.auth_combinations.push_back({username, password});
-      i += 2;
-      continue;
-    }
-
-    return false;
+    i += 2;
   }
 
   return true;
@@ -268,7 +265,7 @@ bool parse_host_range(const std::string &input,
 
   size_t total_targets = 1;
   for (const auto &[start_octet, end_octet] : octet_ranges) {
-    const size_t octet_count = static_cast<size_t>(end_octet - start_octet + 1);
+    const auto octet_count = static_cast<size_t>(end_octet - start_octet + 1);
     if (octet_count == 0) {
       return false;
     }
@@ -283,21 +280,8 @@ bool parse_host_range(const std::string &input,
     targets.reserve(total_targets);
   }
 
-  for (int octet0 = octet_ranges[0].first; octet0 <= octet_ranges[0].second;
-       ++octet0) {
-    for (int octet1 = octet_ranges[1].first; octet1 <= octet_ranges[1].second;
-         ++octet1) {
-      for (int octet2 = octet_ranges[2].first; octet2 <= octet_ranges[2].second;
-           ++octet2) {
-        for (int octet3 = octet_ranges[3].first;
-             octet3 <= octet_ranges[3].second; ++octet3) {
-          targets.push_back(
-              std::to_string(octet0) + "." + std::to_string(octet1) + "." +
-              std::to_string(octet2) + "." + std::to_string(octet3));
-        }
-      }
-    }
-  }
+  std::array<int, 4> selected_octets{};
+  append_targets_from_ranges(octet_ranges, 0, selected_octets, targets);
 
   return true;
 }

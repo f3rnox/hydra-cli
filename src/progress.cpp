@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 
 namespace {
 
@@ -18,8 +19,7 @@ ProgressIndicator::ProgressIndicator()
 
 ProgressIndicator::~ProgressIndicator() { stop(""); }
 
-void ProgressIndicator::start(std::size_t total_steps,
-                              const std::string &label) {
+void ProgressIndicator::start(std::size_t total_steps, std::string_view label) {
   if (running_.load()) {
     return;
   }
@@ -42,7 +42,7 @@ void ProgressIndicator::increment() {
   }
 }
 
-void ProgressIndicator::stop(const std::string &done_message) {
+void ProgressIndicator::stop(std::string_view done_message) {
   if (!running_.load()) {
     return;
   }
@@ -56,23 +56,22 @@ void ProgressIndicator::stop(const std::string &done_message) {
   render(' ');
 
   if (!done_message.empty()) {
-    log_stdout_line(" " + done_message);
+    log_stdout_line(std::string(" ") + std::string(done_message));
     return;
   }
   log_stdout_line("");
 }
 
-void ProgressIndicator::run() {
+void ProgressIndicator::run() const {
   std::size_t frame_index = 0;
   while (running_.load()) {
-    render(k_spinner_frames[frame_index % (sizeof(k_spinner_frames) /
-                                           sizeof(k_spinner_frames[0]))]);
+    render(k_spinner_frames[frame_index % std::size(k_spinner_frames)]);
     ++frame_index;
     std::this_thread::sleep_for(k_frame_delay);
   }
 }
 
-void ProgressIndicator::render(char spinner_char) {
+void ProgressIndicator::render(char spinner_char) const {
   const std::size_t completed_steps =
       std::min(completed_steps_.load(), total_steps_);
   const std::string bar = build_bar(completed_steps, total_steps_);
