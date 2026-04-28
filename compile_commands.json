@@ -1,0 +1,32 @@
+[
+  {
+    "directory": "/home/f3rno/.src/github/f3rnox/hydra-cli",
+    "file": "src/logging.cpp",
+    "command": "g++ -std=c++17 -Wall -Wextra -Wpedantic -O2 -DNDEBUG -Iinclude -c src/logging.cpp -o src/logging.o"
+  },
+  {
+    "directory": "/home/f3rno/.src/github/f3rnox/hydra-cli",
+    "file": "src/progress.cpp",
+    "command": "g++ -std=c++17 -Wall -Wextra -Wpedantic -O2 -DNDEBUG -Iinclude -c src/progress.cpp -o src/progress.o"
+  },
+  {
+    "directory": "/home/f3rno/.src/github/f3rnox/hydra-cli",
+    "file": "src/main.cpp",
+    "command": "g++ -std=c++17 -Wall -Wextra -Wpedantic -O2 -DNDEBUG -Iinclude -c src/main.cpp -o src/main.o"
+  },
+  {
+    "directory": "/home/f3rno/.src/github/f3rnox/hydra-cli",
+    "file": "src/cli_args.cpp",
+    "command": "g++ -std=c++17 -Wall -Wextra -Wpedantic -O2 -DNDEBUG -Iinclude -c src/cli_args.cpp -o src/cli_args.o"
+  },
+  {
+    "directory": "/home/f3rno/.src/github/f3rnox/hydra-cli",
+    "file": "src/network.cpp",
+    "command": "g++ -std=c++17 -Wall -Wextra -Wpedantic -O2 -DNDEBUG -Iinclude -c src/network.cpp -o src/network.o"
+  },
+  {
+    "directory": "/home/f3rno/.src/github/f3rnox/hydra-cli",
+    "file": "src/session.cpp",
+    "command": "g++ -std=c++17 -Wall -Wextra -Wpedantic -O2 -DNDEBUG -Iinclude -c src/session.cpp -o src/session.o"
+  }
+]
