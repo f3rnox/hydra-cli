@@ -12,7 +12,55 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-int connect_to_host_port_22(const std::string& host, int timeout_seconds) {
+namespace {
+
+void set_socket_timeouts(int sockfd, int timeout_seconds) {
+  timeval timeout{};
+  timeout.tv_sec = timeout_seconds;
+  timeout.tv_usec = 0;
+  setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+}
+
+}  // namespace
+
+int connect_to_host_port(const std::string& host, int target_port, int timeout_seconds, bool without_tor) {
+  if (without_tor) {
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo* result = nullptr;
+    const std::string target_port_string = std::to_string(target_port);
+    const int get_addr_info_result =
+        getaddrinfo(host.c_str(), target_port_string.c_str(), &hints, &result);
+    if (get_addr_info_result != 0) {
+      log_error("Failed to resolve target '" + host + ":" + target_port_string +
+                "': " + gai_strerror(get_addr_info_result));
+      return -1;
+    }
+
+    int sockfd = -1;
+    for (addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+      sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+      if (sockfd == -1) {
+        continue;
+      }
+
+      set_socket_timeouts(sockfd, timeout_seconds);
+
+      if (connect(sockfd, rp->ai_addr, rp->ai_addrlen) == 0) {
+        break;
+      }
+
+      close(sockfd);
+      sockfd = -1;
+    }
+
+    freeaddrinfo(result);
+    return sockfd;
+  }
+
   const std::string tor_proxy_host = "127.0.0.1";
   const std::string tor_proxy_port = "9050";
 #ifdef DEBUG
@@ -42,11 +90,7 @@ int connect_to_host_port_22(const std::string& host, int timeout_seconds) {
       continue;
     }
 
-    timeval timeout{};
-    timeout.tv_sec = timeout_seconds;
-    timeout.tv_usec = 0;
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    set_socket_timeouts(sockfd, timeout_seconds);
 
     if (connect(sockfd, rp->ai_addr, rp->ai_addrlen) != 0) {
       close(sockfd);
@@ -95,8 +139,8 @@ int connect_to_host_port_22(const std::string& host, int timeout_seconds) {
     request.push_back(static_cast<char>(0x03));
     request.push_back(static_cast<char>(host.size()));
     request.append(host);
-    request.push_back(static_cast<char>(0x00));
-    request.push_back(static_cast<char>(0x16));
+    request.push_back(static_cast<char>((target_port >> 8) & 0xFF));
+    request.push_back(static_cast<char>(target_port & 0xFF));
 
     if (send(sockfd, request.data(), request.size(), 0) != static_cast<ssize_t>(request.size())) {
       close(sockfd);
@@ -104,7 +148,7 @@ int connect_to_host_port_22(const std::string& host, int timeout_seconds) {
       continue;
     }
 #ifdef DEBUG
-    log_info("SOCKS5 connect request sent for " + host + ":22");
+    log_info("SOCKS5 connect request sent for " + host + ":" + std::to_string(target_port));
 #endif
 
     unsigned char reply_header[4];

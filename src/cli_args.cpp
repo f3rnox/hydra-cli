@@ -29,32 +29,72 @@ bool parse_octet(const std::string& value, int& octet) {
 }  // namespace
 
 void print_usage(const char* program_name) {
-  std::cerr << "Usage: " << program_name << " <target-host-or-range> [--timeout-seconds N]\n"
+  std::cerr << "Usage: " << program_name
+            << " <target-host-or-range> [--timeout-seconds N] [--port P] [--with-auth] "
+               "[--without-tor]\n"
             << "Examples:\n"
-            << "  " << program_name << " example.com --timeout-seconds 5\n"
-            << "  " << program_name << " 127.0.0.1-255 --timeout-seconds 2\n";
+            << "  " << program_name << " example.com --port 22 --timeout-seconds 5\n"
+            << "  " << program_name << " 127.0.0.1-255 --timeout-seconds 2 --port 443\n"
+            << "  " << program_name << " 192.168.1.10 --port 23 --with-auth\n"
+            << "  " << program_name << " 10.0.0.5 --port 80 --without-tor\n";
 }
 
-bool parse_timeout(int argc, char** argv, int& timeout_seconds) {
-  timeout_seconds = 5;
-
+bool parse_cli_options(int argc, char** argv, CliOptions& options) {
   if (argc == 2) {
     return true;
   }
 
-  if (argc == 4 && std::string(argv[2]) == "--timeout-seconds") {
-    try {
-      timeout_seconds = std::stoi(argv[3]);
-      if (timeout_seconds <= 0) {
-        return false;
-      }
-      return true;
-    } catch (...) {
+  for (int i = 2; i < argc;) {
+    const std::string flag = argv[i];
+
+    if (flag == "--with-auth") {
+      options.with_auth = true;
+      ++i;
+      continue;
+    }
+
+    if (flag == "--without-tor") {
+      options.without_tor = true;
+      ++i;
+      continue;
+    }
+
+    if (i + 1 >= argc) {
       return false;
     }
+
+    const std::string value = argv[i + 1];
+
+    if (flag == "--timeout-seconds") {
+      try {
+        options.timeout_seconds = std::stoi(value);
+        if (options.timeout_seconds <= 0) {
+          return false;
+        }
+      } catch (...) {
+        return false;
+      }
+      i += 2;
+      continue;
+    }
+
+    if (flag == "--port") {
+      try {
+        options.target_port = std::stoi(value);
+        if (options.target_port <= 0 || options.target_port > 65535) {
+          return false;
+        }
+      } catch (...) {
+        return false;
+      }
+      i += 2;
+      continue;
+    }
+
+    return false;
   }
 
-  return false;
+  return true;
 }
 
 bool parse_host_range(const std::string& input, std::vector<std::string>& targets) {
